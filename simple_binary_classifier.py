@@ -90,10 +90,6 @@ def main():
     #convert data type of x array from floar64 to float32
     x = x.astype(np.float32)
     y = y.astype(np.float32)
-    #plot genarated samples
-    plt.subplot(131)
-    plt.scatter(x[y == 0, 0], x[y == 0, 1])
-    plt.scatter(x[y == 1, 0], x[y == 1, 1])
     #convert x and y to tensors
     samples = torch.from_numpy(x)
     labels = torch.from_numpy(y.reshape(100, 1))
@@ -104,5 +100,10 @@ def main():
     w1, w2, b1 = getModelParams(simleClassifier)
     plotFittedModel('trained model', w1, w2, b1, -2.0, 2.0, 'g')
 
+    #plot genarated samples
+    plt.subplot(121)
+    plt.scatter(x[y == 0, 0], x[y == 0, 1])
+    plt.scatter(x[y == 1, 0], x[y == 1, 1])
+    plt.show()
 
 main() 
