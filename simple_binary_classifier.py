@@ -24,6 +24,15 @@ class SimpleClassifier(nn.Module):
     def forward(self, x):
         result = torch.sigmoid(self.mNet(x))
         return result
+
+    def predict(self, sample):
+        pred = self.forward(sample)
+        if pred >= 0.5:
+            return 1
+        else:
+            return 0
+
+        
  #**************************************************************
 def getModelParams(model):
     [w, b] = model.parameters()
@@ -79,6 +88,9 @@ def trainer(trainData, numOfEpochs : np.int32 = 1000) -> SimpleClassifier:
 
 #**************************************************************
 def main():
+    # try to genarate a dataset with 2 clusters. One of them with (-0.5, 0.5)
+    # center and the other with (0.5, -0.5) center.Both f them has 0.4 as
+    # it's standard deviation.
     numOfSamplesPerCluster = 100
     seed = 123
     clusterCenters = [[-0.5, 0.5], [0.5, -0.5]]
@@ -98,12 +110,23 @@ def main():
     #plot created model
     #get model parameters
     w1, w2, b1 = getModelParams(simleClassifier)
-    plotFittedModel('trained model', w1, w2, b1, -2.0, 2.0, 'g')
+    plotFittedModel('trained model', w1, w2, b1, -2.0, 2.0, 'g')    
+    # try to test trained model
+    point1 = torch.tensor([1.0, -1.0])
+    point2 = torch.tensor([-1.0, 1.0])
+    plt.subplot(121)
+    plt.plot(point1.numpy()[0], point1.numpy()[1], 'ro')
+    plt.plot(point2.numpy()[0], point2.numpy()[1], 'ko')
 
     #plot genarated samples
     plt.subplot(121)
     plt.scatter(x[y == 0, 0], x[y == 0, 1])
     plt.scatter(x[y == 1, 0], x[y == 1, 1])
     plt.show()
+
+    print(simleClassifier.predict(point1))
+    print(simleClassifier.predict(point2))
+
+
 
 main() 
