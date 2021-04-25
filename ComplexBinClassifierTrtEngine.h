@@ -2,6 +2,7 @@
 #define COMPLEX_BIN_CLASSIFIER_TRT_ENGINE
 
 #include <iostream>
+#include <map>
 
 #include <NvInferRuntime.h>
 
@@ -37,6 +38,7 @@ public:
      *     0 : Operation is done successfully
      *     -1: Specified waights path is wrong
      *     -2: Specified waights is not compatible with this model
+     *     -3: Destination file can't be created.
      */
 
     int buildAndSaveEngine(std::string modelWaightsPath, 
@@ -64,12 +66,31 @@ public:
 protected:
 //                      There is no ptrotected member in this class
 private:
-    ICudaEngine* mEngine = nullptr;
-
+    std::map<std::string, nvinfer1::Weights> loadWeights(const std::string& file);
 //Property section*******************************************************
 public:
 protected:
 private:
+    /**
+     * @brief 
+     */
+    const char* kInputBlobName = "data";
+    /**
+     * @brief 
+     */
+    const char* kOutputBlobName = "prob";
+    /**
+     * @brief 
+     */
+    const unsigned int mMaxBatchSize = 10;
+    /**
+     * @brief This variable specifies the type of parameters of the model.
+     */
+    DataType mDataType =  DataType::kFLOAT;
+    /**
+     * @brief Diamentions of input data of model
+     */
+    Dims2 mDataDim = Dims2{1, 2};
 };
 
 #endif
