@@ -21,58 +21,100 @@ int ComplexBinClassifierTrtEngine::loadEngine(std::string enginePath)
     return 0;
 }
 //***************************************************************************
-ComplexBinClassifierTrtEngine::ComplexBinClassifierTrtEngine()
+ComplexBinClassifierTrtEngine::ComplexBinClassifierTrtEngine(
+    DataType dataType, 
+    Dims dataDims,
+    uint32_t maxBatchSize,
+    std::size_t workspaceSize):
+    mDataType(dataType),
+    mDataDim(dataDims),
+    mMaxBatchSize(maxBatchSize),
+    mWorkspaceSize(workspaceSize)
+    {}
+//***************************************************************************
+ComplexBinClassifierTrtEngine::ComplexBinClassifierTrtEngine():
+    ComplexBinClassifierTrtEngine(DataType::kFLOAT, Dims2(1, 2), 1, 1 << 20)
+{}
+//***************************************************************************
+ComplexBinClassifierTrtEngine::~ComplexBinClassifierTrtEngine()
 {
-
+    if (nullptr != this->mEngine)
+    {
+        this->mEngine->destroy();
+    }
 }
 //***************************************************************************
-int ComplexBinClassifierTrtEngine::buildAndSaveEngine(
-                                    std::string modelWaightsPath, 
-                                    std::string destinationPath)
+//Builder module is passed to this function because of logger object is
+//a privare member of TrtEngineBuilder class.
+int ComplexBinClassifierTrtEngine::buildEngine(
+    const std::string modelWaightsPath, 
+    IBuilder *builder, 
+    ICudaEngine **engine)
 {
-    //Define an instance of ILogger to use in tensorrt API methods.
-    Logger gLogger;
-    //Create a builder module to build engine.
-    auto builder = std::unique_ptr<nvinfer1::IBuilder, InferDeleter>
-                                             (createInferBuilder(gLogger));
+    //Assume this function can not create engine
+    *engine = nullptr;
     //Create a networkDefinition module
     auto network = std::unique_ptr<INetworkDefinition, InferDeleter>
-                                             (builder->createNetwork());
+                                             (builder->createNetworkV2(0U));
     auto config = std::unique_ptr<IBuilderConfig, InferDeleter>
                                              (builder->createBuilderConfig());
     // Create input tensor of shape {1, 1} with name kInputBlobName
-    ITensor *inputData = network->addInput(
+    nvinfer1::ITensor *inputData = network->addInput(
                             this->kInputBlobName, 
                             this->mDataType, 
                             this->mDataDim);
-    assert(inputData);
-
+    // assert(inputData);
+    if (nullptr == inputData)
+    {
+        return -4;
+    }
     //Load waits of previously traind model
+    int result = 0;
     std::map<std::string, Weights> weightMap = this->loadWeights(
-                                                        modelWaightsPath);
+                                                        modelWaightsPath, 
+                                                        result);
+    if (result < 0)
+    {
+        return result;
+    }
+    
     //Create network layers base on previously trained model structure
     IFullyConnectedLayer *fc = network->addFullyConnected(
                                                 *inputData, 4, 
                                                 weightMap["mModel.0.weight"],
                                                 weightMap["mModel.0.bias"]);
-    assert(fc);
-
+    // assert(fc);
+    if (nullptr == fc)
+    {
+        return -4;
+    }
     // Add activation layer using the ReLU algorithm.
     IActivationLayer* activation = network->addActivation(
                                             *fc->getOutput(0),
                                             ActivationType::kRELU);
-    assert(activation);
-
+    // assert(activation);
+    if (nullptr == activation)
+    {
+        return -4;
+    }
     fc = network->addFullyConnected(
                             *activation->getOutput(0), 1, 
                             weightMap["mModel.2.weight"],
                             weightMap["mModel.2.bias"]);
-    assert(fc);
+    // assert(fc);
+    if (nullptr == fc)
+    {
+        return -4;
+    }
     // Add activation layer using the ReLU algorithm.
     activation = network->addActivation(
                                 *fc->getOutput(0),
                                 ActivationType::kSIGMOID);
-    assert(activation);
+    // assert(activation);
+    if (nullptr == activation)
+    {
+        return -4;
+    }
     //REgister output layer
     activation->getOutput(0)->setName(kOutputBlobName);
     network->markOutput(*activation->getOutput(0));
@@ -80,9 +122,8 @@ int ComplexBinClassifierTrtEngine::buildAndSaveEngine(
     // Build engine
     builder->setMaxBatchSize(mMaxBatchSize);
     config->setMaxWorkspaceSize(1 << 20);
-    auto engine = std::unique_ptr<ICudaEngine, InferDeleter>
-                         (builder->buildEngineWithConfig(*network, *config));
 
+    *engine = builder->buildEngineWithConfig(*network, *config);
     //After building engine it is possible to release created network and
     //loaded waights
     network = nullptr;
@@ -91,25 +132,48 @@ int ComplexBinClassifierTrtEngine::buildAndSaveEngine(
     {
         free((void*) (mem.second.values));
     }
+    //Check is engine created successfully?
+    if (nullptr == *engine)
+    {
+        return -4;
+    }
     
-    assert(engine != nullptr);
+    return 0;
+}
+//***************************************************************************
+int ComplexBinClassifierTrtEngine::buildAndSaveEngine(
+                                    std::string modelWaightsPath, 
+                                    std::string destinationPath)
+{
+    //Create a builder module to build engine.
+    auto builder = createInferBuilder(this->mLogger);
+    
+    int result = this->buildEngine(
+        modelWaightsPath,
+        builder,
+        &this->mEngine);
+    //Check is any error occured in engine creation
+    if (0 != result)
+    {
+       return result;
+    }
     //Serialize created engine
     // IHostMemory* modelStream = engine->serialize();
     auto modelStream = std::unique_ptr<IHostMemory, InferDeleter>
-                                                   (engine->serialize());
-    //After creating model stream it is possible to free engine and config
-    //modules
-    engine = nullptr;
-    config = nullptr;
-
-    assert(modelStream != nullptr);
+                                                (this->mEngine->serialize());
+    //Check is serialization done successfully?
+    if (nullptr == modelStream)
+    {
+        return -5;
+    }
+    // assert(modelStream != nullptr);
 
     //save serialized model on specified file
     std::ofstream outFileStream(destinationPath);
-    if (!outFileStream)
+    if (!outFileStream || false == outFileStream.is_open())
     {
         std::cerr << "could not open plan output file" << std::endl;
-        return -3;
+        return -6;
     }
     outFileStream.write(reinterpret_cast<const char*>
                                  (modelStream->data()), modelStream->size());
@@ -124,20 +188,35 @@ int ComplexBinClassifierTrtEngine::buildAndSaveEngine(
 //!          [type] [size] <data x size in hex>
 //!
 std::map<std::string, nvinfer1::Weights> 
-    ComplexBinClassifierTrtEngine::loadWeights(const std::string& file)
+    ComplexBinClassifierTrtEngine::loadWeights(
+        const std::string& file, 
+        int &result)
 {
     std::cout << "Loading weights: " << file << std::endl;
-
+    //Assume that function can load waights successfully.
+    result = 0;
+    //Build a map to hold loaded waights
+    std::map<std::string, nvinfer1::Weights> weightMap;
+    
     // Open weights file
     std::ifstream input(file, std::ios::binary);
-    assert(input.is_open() && "Unable to load weight file.");
-
+    if (false == input.is_open())
+    {
+        result = -1;
+        return weightMap;
+    }
+    
     // Read number of weight blobs
     int32_t count;
     input >> count;
-    assert(count > 0 && "Invalid weight map file.");
+    if (count <= 0)
+    {
+        result = -2;
+        return weightMap;
+    }
+    
+    // assert(count > 0 && "Invalid weight map file.");
 
-    std::map<std::string, nvinfer1::Weights> weightMap;
     while (count--)
     {
         nvinfer1::Weights wt{DataType::kFLOAT, nullptr, 0};

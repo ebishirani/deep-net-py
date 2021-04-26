@@ -1,3 +1,6 @@
+#ifndef COMMON_H
+#define COMMON_H
+
 struct InferDeleter
 {
     template <typename T>
@@ -9,3 +12,4 @@ struct InferDeleter
         }
     }
 };
+#endif
